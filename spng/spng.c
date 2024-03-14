@@ -635,6 +635,7 @@ static int check_decode_fmt(const struct spng_ihdr *ihdr, const int fmt)
         case SPNG_FMT_RGBA8:
         case SPNG_FMT_RGBA16:
         case SPNG_FMT_RGB8:
+        case SPNG_FMT_RGB16:
         case SPNG_FMT_PNG:
         case SPNG_FMT_RAW:
             return 0;
@@ -642,6 +643,7 @@ static int check_decode_fmt(const struct spng_ihdr *ihdr, const int fmt)
         case SPNG_FMT_GA8:
             if(ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE && ihdr->bit_depth <= 8) return 0;
             else return SPNG_EFMT;
+        case SPNG_FMT_G16:
         case SPNG_FMT_GA16:
             if(ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE && ihdr->bit_depth == 16) return 0;
             else return SPNG_EFMT;
@@ -662,11 +664,17 @@ static int calculate_image_width(const struct spng_ihdr *ihdr, int fmt, size_t *
         case SPNG_FMT_GA16:
             bytes_per_pixel = 4;
             break;
+        case SPNG_FMT_G16:
+            bytes_per_pixel = 2;
+            break;
         case SPNG_FMT_RGBA16:
             bytes_per_pixel = 8;
             break;
         case SPNG_FMT_RGB8:
             bytes_per_pixel = 3;
+            break;
+        case SPNG_FMT_RGB16:
+            bytes_per_pixel = 6;
             break;
         case SPNG_FMT_PNG:
         case SPNG_FMT_RAW:
@@ -1768,6 +1776,20 @@ static inline void gamma_correct_row(unsigned char *row, uint32_t pixels, int fm
             memcpy(row + i * 8, px, 8);
         }
     }
+    else if(fmt == SPNG_FMT_RGB16)
+    {
+        for(i=0; i < pixels; i++)
+        {
+            uint16_t px[3];
+            memcpy(px, row + i * 6, 6);
+
+            px[0] = gamma_lut[px[0]];
+            px[1] = gamma_lut[px[1]];
+            px[2] = gamma_lut[px[2]];
+
+            memcpy(row + i * 6, px, 6);
+        }
+    }
     else if(fmt == SPNG_FMT_RGB8)
     {
         unsigned char *px;
@@ -1892,6 +1914,20 @@ static inline void scale_row(unsigned char *row, uint32_t pixels, int fmt, unsig
             px[3] = sample_to_target(px[3], depth, sbit->alpha_bits, 16);
 
             memcpy(row + i * 8, px, 8);
+        }
+    }
+    else if(fmt == SPNG_FMT_RGB16)
+    {
+        uint16_t px[3];
+        for(i=0; i < pixels; i++)
+        {
+            memcpy(px, row + i * 6, 6);
+
+            px[0] = sample_to_target(px[0], depth, sbit->red_bits, 16);
+            px[1] = sample_to_target(px[1], depth, sbit->green_bits, 16);
+            px[2] = sample_to_target(px[2], depth, sbit->blue_bits, 16);
+
+            memcpy(row + i * 6, px, 6);
         }
     }
     else if(fmt == SPNG_FMT_RGB8)
@@ -3324,6 +3360,7 @@ int spng_decode_scanline(spng_ctx *ctx, void *out, size_t len)
 
     if(fmt == SPNG_FMT_RGBA16) pixel_size = 8;
     else if(fmt == SPNG_FMT_RGB8) pixel_size = 3;
+    else if(fmt == SPNG_FMT_RGB16) pixel_size = 6;
 
     if(len < sub[pass].out_width) return SPNG_EBUFSIZ;
 
@@ -3405,7 +3442,7 @@ int spng_decode_scanline(spng_ctx *ctx, void *out, size_t len)
 
                 continue;
             }
-            else /* RGBA16 */
+            else /* RGB16 || RGBA16 */
             {
                 r_16 = plte[entry].red;
                 g_16 = plte[entry].green;
@@ -3420,7 +3457,7 @@ int spng_decode_scanline(spng_ctx *ctx, void *out, size_t len)
                 memcpy(pixel, &r_16, 2);
                 memcpy(pixel + 2, &g_16, 2);
                 memcpy(pixel + 4, &b_16, 2);
-                memcpy(pixel + 6, &a_16, 2);
+                if(fmt == SPNG_FMT_RGBA16) memcpy(pixel + 6, &a_16, 2);
 
                 continue;
             }
@@ -3504,7 +3541,7 @@ int spng_decode_scanline(spng_ctx *ctx, void *out, size_t len)
 
             if(fmt == SPNG_FMT_RGBA8) pixel[3] = a_8;
         }
-        else if(fmt == SPNG_FMT_RGBA16)
+        else if(fmt == SPNG_FMT_RGBA16 | SPNG_FMT_RGB16)
         {
             if(ihdr->bit_depth != 16)
             {
@@ -3517,7 +3554,7 @@ int spng_decode_scanline(spng_ctx *ctx, void *out, size_t len)
             memcpy(pixel, &r_16, 2);
             memcpy(pixel + 2, &g_16, 2);
             memcpy(pixel + 4, &b_16, 2);
-            memcpy(pixel + 6, &a_16, 2);
+            if(fmt == SPNG_FMT_RGBA16) memcpy(pixel + 6, &a_16, 2);
         }
     }/* for(k=0; k < width; k++) */
 
@@ -3567,6 +3604,7 @@ int spng_decode_row(spng_ctx *ctx, void *out, size_t len)
     unsigned pixel_size = 4; /* RGBA8 */
     if(ctx->fmt == SPNG_FMT_RGBA16) pixel_size = 8;
     else if(ctx->fmt == SPNG_FMT_RGB8) pixel_size = 3;
+    else if(ctx->fmt == SPNG_FMT_RGB16) pixel_size = 6;
     else if(ctx->fmt == SPNG_FMT_G8) pixel_size = 1;
     else if(ctx->fmt == SPNG_FMT_GA8) pixel_size = 2;
     else if(ctx->fmt & (SPNG_FMT_PNG | SPNG_FMT_RAW))
@@ -3709,7 +3747,7 @@ int spng_decode_image(spng_ctx *ctx, void *out, size_t len, int fmt, int flags)
     if(f.indexed) f.do_scaling = 0;
 
     unsigned depth_target = 8; /* FMT_RGBA8, G8 */
-    if(fmt == SPNG_FMT_RGBA16) depth_target = 16;
+    if(fmt & (SPNG_FMT_RGBA16 | SPNG_FMT_RGB16)) depth_target = 16;
 
     if(flags & SPNG_DECODE_TRNS && ctx->stored.trns) f.apply_trns = 1;
     else flags &= ~SPNG_DECODE_TRNS;
@@ -3728,7 +3766,7 @@ int spng_decode_image(spng_ctx *ctx, void *out, size_t len, int fmt, int flags)
         if(ihdr->color_type == SPNG_COLOR_TYPE_TRUECOLOR_ALPHA &&
            ihdr->bit_depth == depth_target) f.same_layout = 1;
     }
-    else if(fmt == SPNG_FMT_RGB8)
+    else if(fmt & (SPNG_FMT_RGB8 | SPNG_FMT_RGB16))
     {
         if(ihdr->color_type == SPNG_COLOR_TYPE_TRUECOLOR &&
            ihdr->bit_depth == depth_target) f.same_layout = 1;
@@ -3742,24 +3780,16 @@ int spng_decode_image(spng_ctx *ctx, void *out, size_t len, int fmt, int flags)
         f.apply_gamma = 0; /* for now */
         f.apply_trns = 0;
     }
-    else if(fmt == SPNG_FMT_G8 && ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE && ihdr->bit_depth <= 8)
+    else if((fmt & (SPNG_FMT_G8 | SPNG_FMT_G16)) && ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE && ihdr->bit_depth <= 8)
     {
         if(ihdr->bit_depth == depth_target) f.same_layout = 1;
         else if(ihdr->bit_depth < 8) f.unpack = 1;
 
         f.apply_trns = 0;
     }
-    else if(fmt == SPNG_FMT_GA8 && ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE && ihdr->bit_depth <= 8)
+    else if((fmt & (SPNG_FMT_GA8 | SPNG_FMT_GA16)) && ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE_ALPHA && ihdr->bit_depth == 16)
     {
-        if(ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE_ALPHA &&
-           ihdr->bit_depth == depth_target) f.same_layout = 1;
-        else if(ihdr->bit_depth <= 8) f.unpack = 1;
-    }
-    else if(fmt == SPNG_FMT_GA16 && ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE && ihdr->bit_depth == 16)
-    {
-        if(ihdr->color_type == SPNG_COLOR_TYPE_GRAYSCALE_ALPHA &&
-           ihdr->bit_depth == depth_target) f.same_layout = 1;
-        else if(ihdr->bit_depth == 16) f.unpack = 1;
+        if(ihdr->bit_depth == depth_target) f.same_layout = 1;
     }
 
     /*if(f.same_layout && !flags && !f.interlaced) f.zerocopy = 1;*/
@@ -3781,7 +3811,7 @@ int spng_decode_image(spng_ctx *ctx, void *out, size_t len, int fmt, int flags)
             gamma_lut = ctx->gamma_lut8;
             ctx->gamma_lut = ctx->gamma_lut8;
         }
-        else /* SPNG_FMT_RGBA16 */
+        else /* SPNG_FMT_RGBA16 ||  SPNG_FMT_RGB16 */
         {
             lut_entries = 65536;
             max = 65535.0f;
@@ -3966,6 +3996,7 @@ int spng_decode_image(spng_ctx *ctx, void *out, size_t len, int fmt, int flags)
 
     if(fmt == SPNG_FMT_RGBA16) pixel_size = 8;
     else if(fmt == SPNG_FMT_RGB8) pixel_size = 3;
+    else if(fmt == SPNG_FMT_RGB16) pixel_size = 6;
     else if(fmt == SPNG_FMT_G8) pixel_size = 1;
     else if(fmt == SPNG_FMT_GA8) pixel_size = 2;
 
@@ -4849,6 +4880,7 @@ int spng_encode_image(spng_ctx *ctx, const void *img, size_t len, int fmt, int f
 
     if(fmt == SPNG_FMT_RGBA16) ctx->pixel_size = 8;
     else if(fmt == SPNG_FMT_RGB8) ctx->pixel_size = 3;
+    else if(fmt == SPNG_FMT_RGB16) ctx->pixel_size = 6;
     else if(fmt == SPNG_FMT_G8) ctx->pixel_size = 1;
     else if(fmt == SPNG_FMT_GA8) ctx->pixel_size = 2;
     else if(fmt & (SPNG_FMT_PNG | SPNG_FMT_RAW)) ctx->pixel_size = ctx->bytes_per_pixel;

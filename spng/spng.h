@@ -170,11 +170,13 @@ enum spng_format
     SPNG_FMT_RGBA8 = 1,
     SPNG_FMT_RGBA16 = 2,
     SPNG_FMT_RGB8 = 4,
+    SPNG_FMT_RGB16 = 8,
 
     /* Partially implemented, see documentation */
     SPNG_FMT_GA8 = 16,
     SPNG_FMT_GA16 = 32,
     SPNG_FMT_G8 = 64,
+    SPNG_FMT_G16 = 128,
 
     /* No conversion or scaling */
     SPNG_FMT_PNG = 256,
