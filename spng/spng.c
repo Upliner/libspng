@@ -3541,7 +3541,7 @@ int spng_decode_scanline(spng_ctx *ctx, void *out, size_t len)
 
             if(fmt == SPNG_FMT_RGBA8) pixel[3] = a_8;
         }
-        else if(fmt == SPNG_FMT_RGBA16 | SPNG_FMT_RGB16)
+        else if(fmt & (SPNG_FMT_RGBA16 | SPNG_FMT_RGB16))
         {
             if(ihdr->bit_depth != 16)
             {
